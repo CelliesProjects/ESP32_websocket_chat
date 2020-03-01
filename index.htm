@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html>
+<head>
+<script src="http://ajax.googleapis.com/ajax/libs/jquery/1.4.2/jquery.min.js"></script>
+<title>ESP32 WebSockets Chat Client</title>
+<style>
+body {
+	font-family:Arial, Helvetica, sans-serif;
+}
+#container{
+	border:5px solid grey;
+	width:800px;
+	margin:0 auto;
+	padding:10px;
+}
+#chatLog{
+	padding:5px;
+	border:1px solid black;
+  height:80px;
+  overflow-y:scroll;
+}
+#chatLog p {
+	margin:0;
+}
+.event {
+	color:#999;
+}
+.warning{
+	font-weight:bold;
+	color:#CCC;
+}
+red{
+  color:red;
+}
+green{
+  color:green;
+}
+</style>
+</head>
+<body>
+<div id="wrapper">
+    <div id="container">
+        <h1>ESP32 WebSockets Chat Client</h1>
+        <div id="chatLog">
+        </div><!-- #chatLog -->
+        <p id="examples">Start chatting!</p>
+        <input id="text" type="text" />
+        <!--<button id="disconnect">Disconnect</button>-->
+        <!--<button id="connect">Connect</button>-->
+    </div><!-- #container -->
+</div>
+</body>
+<script>
+$(document).ready(function() {
+    if(!("WebSocket" in window)){
+        $('#chatLog, input, button, #examples').fadeOut("fast");
+        $('<p>No websockets supported by this antique pos.</p>').appendTo('#container');
+    }else{
+        connect();
+    }
+});
+
+function connect(){
+    var host="";
+    if(window.location.hostname)host="ws://"+window.location.hostname+"/ws";
+    else host="ws://192.168.0.108/ws"; //change ip while debugging
+
+    try{
+        var socket = new WebSocket(host);
+/*
+        message('<p class="event">Socket Status: '+socket.readyState);
+
+        socket.onopen = function(){
+         message('<p class="event">Socket Status: '+socket.readyState+' (open)');
+        }
+*/
+        socket.onmessage = function(msg){
+         message('<p class="message">'+msg.data);
+        }
+
+        socket.onclose = function(){
+          message('<p class="event">Socket Status: '+socket.readyState+' (closed)');
+        }
+
+    } catch(exception){
+       message('<p>Error'+exception);
+    }
+
+    function send(){
+        var text = $('#text').val();
+
+        if(text==""){
+            return ;
+        }
+        try{
+            socket.send(text);
+
+        } catch(exception){
+            message('<p class="warning">');
+        }
+        $('#text').val("");
+    }
+
+    function message(msg){
+      const height = document.getElementById("chatLog").scrollHeight;
+      $('#chatLog').append(msg+'</p>').scrollTop(height);
+    }
+
+    $('#text').keypress(function(event) {
+        if (event.keyCode == '13') {
+          send();
+        }
+    });
+
+    $('#disconnect').click(function(){
+        console.log(socket.readyState);
+        socket.close();
+    });
+}
+</script>
+</html>​
