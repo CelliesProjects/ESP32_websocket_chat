@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html>
+<head>
+<script src="http://ajax.googleapis.com/ajax/libs/jquery/1.4.2/jquery.min.js"></script>
+<title>ESP32 WebSockets Chat Client</title>
+<style>
+body {
+  font-family:Arial, Helvetica, sans-serif;
+}
+#container{
+  border:5px solid grey;
+  width:800px;
+  margin:10px auto;
+}
+#chatLog{
+  float:left;
+  height:200px;
+  width:80%;
+  overflow-y:scroll;
+}
+#userlist{
+  float:right;
+  height:200px;
+  width:20%;
+  background:green;
+  text-align:center;
+}
+.userlink{
+  margin:5px;
+}
+#chatLog p{
+  margin:0;
+}
+.event{
+  color:#999;
+}
+.warning{
+  font-weight:bold;
+  color:#CCC;
+}
+red{
+  color:red;
+}
+green{
+  color:green;
+}
+.clear{
+  clear:both;
+}
+</style>
+</head>
+<body>
+<div id="wrapper">
+    <h1>ESP32 WebSockets Chat Client</h1>
+    <div id="container">
+        <div id="chatLog"></div><!-- #chatLog -->
+        <div id="userlist"></div>
+        <div class="clear"></div>
+
+        <!--<button id="disconnect">Disconnect</button>-->
+        <!--<button id="connect">Connect</button>-->
+    </div><!-- #container -->
+<div id="examples">Start chatting!</div>
+<input id="text" type="text" />
+<input id="name" type="text" />
+</div>
+</body>
+<script>
+$(document).ready(function() {
+    if(!("WebSocket" in window)){
+        $('#chatLog, input, button, #examples').fadeOut("fast");
+        $('<p>No websockets supported by this antique pos.</p>').appendTo('#container');
+    }else{
+        connect();
+    }
+});
+
+function connect(){
+    var host="";
+    if(window.location.hostname)host="ws://"+window.location.hostname+"/ws";
+    else host="ws://192.168.0.106/ws"; //change ip while debugging
+
+    try{
+        var socket = new WebSocket(host);
+        socket.binaryType = "arraybuffer";
+/*
+        message('<p class="event">Socket Status: '+socket.readyState);
+
+        socket.onopen = function(){
+         message('<p class="event">Socket Status: '+socket.readyState+' (open)');
+        }
+*/
+        socket.onmessage = function(msg){
+            if (msg.data instanceof ArrayBuffer){
+                let str = new TextDecoder().decode(msg.data);
+                var command = str.split("\n");
+                switch(command[0]){
+                    case "USERLIST":
+                        $('#userlist').html("");
+                        for(var i=1;i<command.length;i++) $('#userlist').append('<p class="userlink">'+command[i]+'</p>');
+                        console.log("Userlist received");
+                        break;
+                    default:
+                        console.log("Could not parse binary message:",msg.data);
+                }
+                return;
+            }
+            //if (msg.data instanceof Blob) console.log("Blob",msg.data);
+            //if (msg.data === "string") console.log("String",msg.data);
+            message('<p class="message">'+msg.data);
+        }
+
+        socket.onclose = function(event){
+            message('<p class="event">Socket Status: '+socket.readyState+' (closed)');
+            $('#userlist,#chatlog').html('');
+        }
+
+    } catch(exception){
+       message('<p>Error'+exception);
+    }
+
+    function send(){
+        var text = $('#text').val();
+
+        if(text==""){
+            return ;
+        }
+        try{
+            socket.send(text);
+
+        } catch(exception){
+            message('<p class="warning">'+exception);
+        }
+        $('#text').val("");
+    }
+
+    function message(msg){
+      const height = document.getElementById("chatLog").scrollHeight;
+      $('#chatLog').append(msg+'</p>').scrollTop(height);
+    }
+
+    $('#text').keypress(function(event) {
+        if (event.keyCode == '13') {
+          send();
+        }
+    });
+
+    $('#disconnect').click(function(){
+        console.log(socket.readyState);
+        socket.close();
+    });
+
+    $('#name').keypress(function(event) {
+        if (event.keyCode == '13') {
+          var enc = new TextEncoder();
+          socket.send(enc.encode('NAME\n'+$(this).val()+'\n'));
+        }
+    });    
+}
+</script>
+</html>​

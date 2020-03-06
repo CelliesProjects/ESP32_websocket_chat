@@ -1,15 +1,18 @@
 // https://techtutorialsx.com/2018/08/14/esp32-async-http-web-server-websockets-introduction/
 // https://javascript.info/websocket
 
-#include <AsyncTCP.h>              /* Reports as 1.0.3 https://github.com/me-no-dev/AsyncTCP */
+#include <AsyncTCP.h>              /* https://github.com/me-no-dev/AsyncTCP */
 #include <ESPAsyncWebServer.h>
 #include "index_htm.h"
 
-const char* ssid = "SSID";
-const char* password = "PSK";
+const char* ssid = "huiskamer";
+const char* password = "0987654321";
 
 AsyncWebServer server(80);
 AsyncWebSocket ws("/ws");
+
+std::vector<uint32_t> clientId;
+std::vector<String>   clientName;
 
 void setup()
 {
@@ -35,35 +38,74 @@ void setup()
   DefaultHeaders::Instance().addHeader("Access-Control-Allow-Origin", "*");
 
   server.begin();
-  ESP_LOGI(TAG, "Setup Done. Connected to %s\n", ssid);
+  ESP_LOGI(TAG, "Setup Done. Connected to %s - %s\n", ssid, WiFi.localIP().toString().c_str());
 }
 
 void loop()
 {
+
   ws.cleanupClients();
-  delay(1000);
+  delay(100);
+}
+
+void sendUserlistToAll() {
+  char content[500];
+  uint16_t curr = snprintf(content, sizeof(content), "USERLIST\n");
+  for (uint8_t i = 0; i < ws.count(); i++) {
+    if (!clientName[i].equals(""))
+      curr += snprintf(content + curr, sizeof(content) - curr, "%s\n", clientName[i].c_str());
+    else
+      curr += snprintf(content + curr, sizeof(content) - curr, "%i\n", clientId[i]);
+  }
+  ESP_LOGI(TAG, "Sending %i bytes to all clients:\n%s ",curr , content);
+   
+  ws.binaryAll(content);
 }
 
 void onEvent(AsyncWebSocket * server, AsyncWebSocketClient * client, AwsEventType type, void * arg, uint8_t *data, size_t len)
 {
   if (type == WS_EVT_CONNECT) {
-    //client connected
+    clientId.push_back(client->id());
+    clientName.push_back("");    // TODO: auto fill in name
+
     ESP_LOGI(TAG, "ws[%s][%u] connect\n", server->url(), client->id());
     //client->ping();
-    ws.printfAll("<red>%i@%s entered the room</red>", client->id(), client->remoteIP().toString().c_str());
     client->printf("<green>Hello %i@%s - Welcome @ ESP32 chat :)</green>", client->id(), client->remoteIP().toString().c_str());
-  } else if (type == WS_EVT_DISCONNECT) {
-    //client disconnected
-    ESP_LOGI(TAG, "ws[%s][%u] disconnect: %u\n", server->url(), client->id());
+    ws.printfAll("<red>%i@%s entered the room. There are %lu users online.</red>", client->id(), client->remoteIP().toString().c_str(), ws.count());
+    sendUserlistToAll();
+  }
 
-    ws.printfAll("<red>Client %u left the room</red>.", client->id());
-  } else if (type == WS_EVT_ERROR) {
+
+  else if (type == WS_EVT_DISCONNECT) {
+    uint8_t i{0};
+    while (clientId[i] != client->id()) i++;
+    ESP_LOGI(TAG, "ws[%s][%u] disconnect: %u\n", server->url(), client->id());
+    if (clientName[i].equals("")) 
+      ws.printfAll("<red>Client %u left the room. There are %lu users online.</red>.", client->id(), ws.count());
+    else
+      ws.printfAll("<red>%s left the room. There are %lu users online.</red>.", clientName[i], ws.count());
+    //find the client id in 'clientId' and pull it from the array
+    //uint8_t i{0};
+    //while (clientId[i] != client->id()) i++;
+    clientId.erase(clientId.begin() + i);
+    clientName.erase(clientName.begin() + i);
+    sendUserlistToAll();
+  }
+
+
+  else if (type == WS_EVT_ERROR) {
     //error was received from the other end
-    ESP_LOGI(TAG, "ws[%s][%u] error(%u): %s\n", server->url(), client->id(), *((uint16_t*)arg), (char*)data);
-  } else if (type == WS_EVT_PONG) {
+    ESP_LOGE(TAG, "ws[%s][%u] error(%u): %s\n", server->url(), client->id(), *((uint16_t*)arg), (char*)data);
+  }
+
+
+  else if (type == WS_EVT_PONG) {
     //pong message was received (in response to a ping request maybe)
     ESP_LOGI(TAG, "ws[%s][%u] pong[%u]: %s\n", server->url(), client->id(), len, (len) ? (char*)data : "");
-  } else if (type == WS_EVT_DATA) {
+  }
+
+
+  else if (type == WS_EVT_DATA) {
     //data packet
     AwsFrameInfo * info = (AwsFrameInfo*)arg;
     if (info->final && info->index == 0 && info->len == len) {
@@ -73,18 +115,62 @@ void onEvent(AsyncWebSocket * server, AsyncWebSocketClient * client, AwsEventTyp
         data[len] = 0;
         ESP_LOGI(TAG, "%s\n", (char*)data);
       } else {
-        client->text((char*)data);
-        for (size_t i = 0; i < info->len; i++) {
+        //client->text((char*)data);
+        /*
+          for (size_t i = 0; i < info->len; i++) {
           ESP_LOGI(TAG, "%02x ", data[i]);
-        }
-        ESP_LOGI(TAG, "\n");
+          }
+          ESP_LOGI(TAG, "\n");
+        */
       }
       if (info->opcode == WS_TEXT) {
         //client->text((char*)data);
-        ws.printfAll("<red>%u@%s:</red> %s", client->id(), client->remoteIP().toString().c_str(), (char*)data);
+
+    
+        
+        uint8_t i{0};
+        while (clientId[i] != client->id()) i++;
+        if (!clientName[i].equals(""))            
+          ws.printfAll("<red>%s:</red> %s", clientName[i], (char*)data);
+        else        
+          ws.printfAll("<red>%u@%s:</red> %s", client->id(), client->remoteIP().toString().c_str(), (char*)data);
+      } else {
+        //get the command from the binary data
+        char command[10];
+        uint8_t i{0};
+        while (data[i] != '\n' && i < sizeof(command) - 1) {
+          command[i] = data[i];
+          i++;
+        }
+        command[i] = 0;
+        ESP_LOGI(TAG, "command: %s", command);
+
+        //we have decoded the command
+
+        if (0 == strcmp(command, "NAME")) {
+          ESP_LOGI(TAG, "Request for name change");
+          i++;
+          char username[15];
+          while (data[i] != '\n' && (i-5) < (sizeof(username) - 1)) {
+            username[i-5] = data[i];
+            i++;
+          }
+          username[i-5]=0;
+          ESP_LOGI(TAG, "requested name: %s", username);
+
+          //find the client id in 'clientId' and change the corresponding name
+          uint8_t i{0};
+          while (clientId[i] != client->id()) i++;
+          clientName[i] = username;
+          ESP_LOGI(TAG, "new name: %s", clientName[i].c_str());
+
+          sendUserlistToAll();
+
+
+        }
+        //client->binary("I got your binary message");
+
       }
-      else
-        client->binary("I got your binary message");
     } else {
       //message is comprised of multiple frames or the frame is split into multiple packets
       if (info->index == 0) {
