@@ -5,29 +5,40 @@
 <title>ESP32 WebSockets Chat Client</title>
 <style>
 body {
-	font-family:Arial, Helvetica, sans-serif;
+  font-family:Arial, Helvetica, sans-serif;
 }
-#container{
-	border:5px solid grey;
-	width:800px;
-	margin:0 auto;
-	padding:10px;
+h1{
+  margin:0;
+}
+.container{
+  background:beige;
+  width:800px;
+  margin:10px auto;
 }
 #chatLog{
-	padding:5px;
-	border:1px solid black;
-  height:80px;
+  float:left;
+  height:200px;
+  width:80%;
   overflow-y:scroll;
 }
-#chatLog p {
-	margin:0;
+#userlist{
+  float:right;
+  height:200px;
+  width:20%;
+  text-align:center;
 }
-.event {
-	color:#999;
+.userlink{
+  margin:5px;
+}
+#chatLog p{
+  margin:0;
+}
+.event{
+  color:#999;
 }
 .warning{
-	font-weight:bold;
-	color:#CCC;
+  font-weight:bold;
+  color:#CCC;
 }
 red{
   color:red;
@@ -35,22 +46,28 @@ red{
 green{
   color:green;
 }
+.clear{
+  clear:both;
+}
 </style>
 </head>
 <body>
 <div id="wrapper">
-    <div id="container">
-        <h1>ESP32 WebSockets Chat Client</h1>
-        <div id="chatLog">
-        </div><!-- #chatLog -->
-        <p id="examples">Start chatting!</p>
-        <input id="text" type="text" />
-        <!--<button id="disconnect">Disconnect</button>-->
-        <!--<button id="connect">Connect</button>-->
-    </div><!-- #container -->
+  <div class="container"><h1>ESP32 WebSockets Chat Client</h1></div>
+    <div class="container">
+    <div id="chatLog"></div>
+    <div id="userlist"></div>
+    <div class="clear"></div>
+  </div>
+  <div class="container">
+    <div id="examples">Start chatting!</div>
+    <input id="text" type="text" />
+  <input id="name" type="text" />
+  </div>
 </div>
 </body>
 <script>
+  var username=undefined;
 $(document).ready(function() {
     if(!("WebSocket" in window)){
         $('#chatLog, input, button, #examples').fadeOut("fast");
@@ -63,10 +80,11 @@ $(document).ready(function() {
 function connect(){
     var host="";
     if(window.location.hostname)host="ws://"+window.location.hostname+"/ws";
-    else host="ws://192.168.0.108/ws"; //change ip while debugging
+    else host="ws://192.168.0.101/ws"; //change ip while debugging
 
     try{
-        var socket = new WebSocket(host);
+        var socket = new WebSocket(host+'?name=cellie');
+        socket.binaryType = "arraybuffer";
 /*
         message('<p class="event">Socket Status: '+socket.readyState);
 
@@ -75,11 +93,28 @@ function connect(){
         }
 */
         socket.onmessage = function(msg){
-         message('<p class="message">'+msg.data);
+            if (msg.data instanceof ArrayBuffer){
+                let str = new TextDecoder().decode(msg.data);
+                var command = str.split("\n");
+                switch(command[0]){
+                    case "USERLIST":
+                        $('#userlist').html("");
+                        for(var i=1;i<command.length;i++) $('#userlist').append('<p class="userlink">'+command[i]+'</p>');
+                        console.log("Userlist received");
+                        break;
+                    default:
+                        console.log("Could not parse binary message:",msg.data);
+                }
+                return;
+            }
+            //if (msg.data instanceof Blob) console.log("Blob",msg.data);
+            //if (msg.data === "string") console.log("String",msg.data);
+            message('<p class="message">'+msg.data);
         }
 
-        socket.onclose = function(){
-          message('<p class="event">Socket Status: '+socket.readyState+' (closed)');
+        socket.onclose = function(event){
+            message('<p class="event">Socket Status: '+socket.readyState+' (closed)');
+            $('#userlist,#chatlog').html('');
         }
 
     } catch(exception){
@@ -96,7 +131,7 @@ function connect(){
             socket.send(text);
 
         } catch(exception){
-            message('<p class="warning">');
+            message('<p class="warning">'+exception);
         }
         $('#text').val("");
     }
@@ -116,6 +151,15 @@ function connect(){
         console.log(socket.readyState);
         socket.close();
     });
+
+    $('#name').keypress(function(event) {
+        if (event.keyCode == '13') {
+          var enc = new TextEncoder();
+          socket.send(enc.encode('NAME\n'+$(this).val()+'\n'));
+          setCookie("username", $(this).val(), 365); //7 days
+        }
+    });    
 }
+
 </script>
 </html>​

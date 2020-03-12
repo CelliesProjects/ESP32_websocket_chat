@@ -11,8 +11,9 @@ const char* password = "0987654321";
 AsyncWebServer server(80);
 AsyncWebSocket ws("/ws");
 
-std::vector<uint32_t> clientId;
-std::vector<String>   clientName;
+std::vector<uint32_t>  clientId;
+std::vector<IPAddress> clientIp;
+std::vector<String>    clientName;
 
 void setup()
 {
@@ -43,31 +44,30 @@ void setup()
 
 void loop()
 {
-
   ws.cleanupClients();
   delay(100);
 }
 
 void sendUserlistToAll() {
-  char content[500];
-  uint16_t curr = snprintf(content, sizeof(content), "USERLIST\n");
+  char userlist[500];
+  uint16_t curr = snprintf(userlist, sizeof(userlist), "USERLIST\n");
   for (uint8_t i = 0; i < ws.count(); i++) {
     if (!clientName[i].equals(""))
-      curr += snprintf(content + curr, sizeof(content) - curr, "%s\n", clientName[i].c_str());
+      curr += snprintf(userlist + curr, sizeof(userlist) - curr, "%s\n", clientName[i].c_str());
     else
-      curr += snprintf(content + curr, sizeof(content) - curr, "%i\n", clientId[i]);
+      curr += snprintf(userlist + curr, sizeof(userlist) - curr, "%i\n", clientId[i]);
   }
-  ESP_LOGI(TAG, "Sending %i bytes to all clients:\n%s ",curr , content);
+  ESP_LOGI(TAG, "Sending userlist with size %i bytes to all clients:\n%s ",curr , userlist);
    
-  ws.binaryAll(content);
+  ws.binaryAll(userlist);
 }
 
 void onEvent(AsyncWebSocket * server, AsyncWebSocketClient * client, AwsEventType type, void * arg, uint8_t *data, size_t len)
 {
   if (type == WS_EVT_CONNECT) {
     clientId.push_back(client->id());
+    clientIp.push_back(client->remoteIP());
     clientName.push_back("");    // TODO: auto fill in name
-
     ESP_LOGI(TAG, "ws[%s][%u] connect\n", server->url(), client->id());
     //client->ping();
     client->printf("<green>Hello %i@%s - Welcome @ ESP32 chat :)</green>", client->id(), client->remoteIP().toString().c_str());
@@ -84,10 +84,8 @@ void onEvent(AsyncWebSocket * server, AsyncWebSocketClient * client, AwsEventTyp
       ws.printfAll("<red>Client %u left the room. There are %lu users online.</red>.", client->id(), ws.count());
     else
       ws.printfAll("<red>%s left the room. There are %lu users online.</red>.", clientName[i], ws.count());
-    //find the client id in 'clientId' and pull it from the array
-    //uint8_t i{0};
-    //while (clientId[i] != client->id()) i++;
     clientId.erase(clientId.begin() + i);
+    clientIp.erase(clientIp.begin() + i);
     clientName.erase(clientName.begin() + i);
     sendUserlistToAll();
   }
@@ -156,7 +154,6 @@ void onEvent(AsyncWebSocket * server, AsyncWebSocketClient * client, AwsEventTyp
             i++;
           }
           username[i-5]=0;
-          ESP_LOGI(TAG, "requested name: %s", username);
 
           //find the client id in 'clientId' and change the corresponding name
           uint8_t i{0};
@@ -165,8 +162,6 @@ void onEvent(AsyncWebSocket * server, AsyncWebSocketClient * client, AwsEventTyp
           ESP_LOGI(TAG, "new name: %s", clientName[i].c_str());
 
           sendUserlistToAll();
-
-
         }
         //client->binary("I got your binary message");
 
